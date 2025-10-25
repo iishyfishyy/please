@@ -1,4 +1,4 @@
-module github.com/yourusername/please
+module github.com/iishyfishyy/please
 
 go 1.25.1
 

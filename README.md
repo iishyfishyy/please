@@ -15,10 +15,7 @@ A natural language interface for your terminal. Simply describe what you want to
 
 ### Prerequisites
 
-- Go 1.21 or later
 - Claude CLI ([installation instructions](https://github.com/anthropics/claude-cli))
-
-### Install Claude CLI
 
 First, install and authenticate with Claude CLI:
 
@@ -28,20 +25,39 @@ First, install and authenticate with Claude CLI:
 claude auth
 ```
 
-### Install please
+### Quick Install
 
-Install from source:
+Choose your preferred installation method:
+
+#### Homebrew (macOS/Linux)
 
 ```bash
-git clone https://github.com/yourusername/please.git
-cd please
-go install ./cmd/please
+brew install iishyfishyy/tap/please
 ```
 
-Or install directly:
+#### Install Script (macOS/Linux/Windows)
 
 ```bash
-go install github.com/yourusername/please/cmd/please@latest
+curl -sSL https://raw.githubusercontent.com/iishyfishyy/please/main/install.sh | bash
+```
+
+#### Go Install
+
+```bash
+go install github.com/iishyfishyy/please/cmd/please@latest
+```
+
+#### Download Binary
+
+Download the latest release for your platform from the [releases page](https://github.com/iishyfishyy/please/releases/latest).
+
+#### Build from Source
+
+```bash
+git clone https://github.com/iishyfishyy/please.git
+cd please
+go build -o please ./cmd/please
+sudo mv please /usr/local/bin/
 ```
 
 ## Quick Start
