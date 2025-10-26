@@ -31,3 +31,7 @@ Thumbs.db
 
 # Local configuration (for testing)
 .please/
+
+# Docs (for now)
+README.md
+RELEASING.md
