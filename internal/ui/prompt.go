@@ -45,11 +45,11 @@ func ConfirmCommand(command string) (Action, error) {
 
 	// Display options with keyboard shortcuts
 	fmt.Println("What would you like to do?")
-	fmt.Println("  [r/1] Run it")
-	fmt.Println("  [e/2] Explain")
-	fmt.Println("  [m/3] Modify it")
-	fmt.Println("  [c/4] Copy to clipboard")
-	fmt.Println("  [q/5] Cancel")
+	fmt.Println("  [r] Run it")
+	fmt.Println("  [e] Explain")
+	fmt.Println("  [m] Modify it")
+	fmt.Println("  [c] Copy to clipboard")
+	fmt.Println("  [q] Cancel")
 	fmt.Print("\nPress a key: ")
 
 	// Read a single keypress
@@ -63,15 +63,15 @@ func ConfirmCommand(command string) (Action, error) {
 
 	// Map key to action
 	switch key {
-	case 'r', 'R', '1':
+	case 'r', 'R':
 		return ActionRun, nil
-	case 'e', 'E', '2':
+	case 'e', 'E':
 		return ActionExplain, nil
-	case 'm', 'M', '3':
+	case 'm', 'M':
 		return ActionModify, nil
-	case 'c', 'C', '4':
+	case 'c', 'C':
 		return ActionCopy, nil
-	case 'q', 'Q', '5', '\x1b': // ESC key is \x1b
+	case 'q', 'Q', '\x1b': // ESC key is \x1b
 		return ActionCancel, nil
 	default:
 		// Invalid key, ask again
