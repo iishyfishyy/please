@@ -77,7 +77,7 @@ brews:
       owner: iishyfishyy
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    folder: Formula
+    directory: Formula
     homepage: https://github.com/iishyfishyy/please
     description: A natural language interface for your terminal
     license: MIT
