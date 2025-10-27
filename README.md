@@ -10,6 +10,9 @@ A natural language interface for your terminal. Simply describe what you want to
 - ✏️ **Iterative refinement** - Modify commands with natural language
 - 📝 **Command history** - Tracks all your requests and executions
 - 🔒 **Safe by default** - Always asks for confirmation before running
+- 📚 **Custom commands** - Teach `please` about your internal/proprietary tools
+- 🔍 **Smart matching** - Keyword or semantic search for custom commands
+- 🏠 **Privacy options** - Local embeddings (Ollama) or cloud API (OpenAI)
 
 ## Installation
 
@@ -147,11 +150,222 @@ Configuration is stored in `~/.please/config.json`:
 
 ```json
 {
-  "agent": "claude-code"
+  "agent": "claude-code",
+  "customCommands": {
+    "enabled": true,
+    "provider": "ollama",
+    "matching": {
+      "strategy": "hybrid",
+      "maxDocsToRetrieve": 3,
+      "scoreThreshold": 50
+    }
+  }
 }
 ```
 
-Authentication is handled by the Claude CLI, so no API keys are stored in the config.
+Authentication is handled by the Claude CLI, so no API keys are stored in the config (unless you choose to store OpenAI key there).
+
+## Custom Commands
+
+### What are custom commands?
+
+Custom commands allow you to teach `please` about your proprietary, internal, or specialized tools that Claude might not know about. Simply create markdown files with examples, and `please` will use them to generate accurate commands.
+
+**Perfect for**:
+- 🏢 Internal company tools
+- 🔧 Custom scripts and utilities
+- 📦 Specialized domain tools
+- 🚀 Deployment pipelines
+
+### Quick Start
+
+**1. Configure custom commands**:
+
+```bash
+please configure
+# Choose: "Would you like to configure custom commands?"
+# Select provider:
+#   - None (keyword-only matching, fast, no dependencies)
+#   - Ollama (local embeddings, privacy-focused, free)
+#   - OpenAI (cloud embeddings, most accurate, requires API key)
+```
+
+**2. Create a command file** in `~/.please/commands/`:
+
+```bash
+cd ~/.please/commands/
+cat > deploy-tool.md << 'EOF'
+---
+command: deploy-tool
+aliases: ["deploy", "dt"]
+keywords: ["deploy", "staging", "production", "release"]
+priority: high
+---
+
+# Internal Deployment Tool
+
+Our custom deployment tool for managing releases.
+
+## Examples
+
+**User**: "deploy to staging"
+**Command**: `deploy-tool --env=staging --confirm`
+
+**User**: "deploy version 1.2.3 to production"
+**Command**: `deploy-tool --env=production --version=1.2.3 --confirm`
+
+**User**: "rollback production"
+**Command**: `deploy-tool --env=production --rollback`
+EOF
+```
+
+**3. Index your commands**:
+
+```bash
+please index
+```
+
+**4. Use it**:
+
+```bash
+$ please "deploy to staging"
+
+Generated command:
+  deploy-tool --env=staging --confirm
+
+# The LLM now knows about your internal tool!
+```
+
+### File Format
+
+Create markdown files in `~/.please/commands/{tool-name}.md`:
+
+```markdown
+---
+command: kubectl              # Primary command name (required)
+aliases: ["k8s", "kube"]     # Alternative names (optional)
+keywords: ["kubernetes", "pods", "deployments"]  # Search keywords
+categories: ["devops"]       # Organizational categories
+priority: high               # high/medium/low (affects matching)
+---
+
+# Command Description
+
+Brief description of what this tool does.
+
+## Examples
+
+**User**: "natural language request"
+**Command**: `actual command to run`
+
+**User**: "another request"
+**Command**: `another command`
+```
+
+### Matching Strategies
+
+**Keyword-only** (Default):
+- Fast, no dependencies
+- Works offline
+- Good for exact keyword matches
+
+**Hybrid** (Recommended):
+- Tries keyword matching first (fast)
+- Falls back to semantic search if needed
+- Requires Ollama (local) or OpenAI (API)
+- Best accuracy
+
+**Semantic-only**:
+- Always uses semantic search
+- Understands synonyms and paraphrasing
+- Slower but most accurate
+
+Configure in `~/.please/config.json`:
+```json
+{
+  "customCommands": {
+    "matching": {
+      "strategy": "hybrid"  // or "keyword" or "semantic"
+    }
+  }
+}
+```
+
+### Embedding Providers
+
+**Ollama** (Local, Private):
+- ✅ 100% local, no data sent externally
+- ✅ Free, no API costs
+- ✅ Fast (~50-100ms per search)
+- ⚠️ Requires Ollama installed (`brew install ollama`)
+- Model: `nomic-embed-text` (auto-downloaded)
+
+**OpenAI** (Cloud, Accurate):
+- ✅ Most accurate semantic matching
+- ✅ No local setup required
+- ✅ Very cheap ($0.02 per 1M tokens)
+- ⚠️ Requires API key
+- ⚠️ Data sent to OpenAI
+- Model: `text-embedding-3-small`
+
+Setup during `please configure`:
+```bash
+please configure
+# Select embedding provider
+# Ollama: Tool offers to install and configure automatically
+# OpenAI: Enter API key (stored in env var or config)
+```
+
+### CLI Commands
+
+```bash
+# Index/reindex custom commands
+please index
+
+# List all indexed commands
+please list-commands
+
+# Reconfigure custom commands
+please configure
+```
+
+### Best Practices
+
+1. **Add 10-15 examples per command** - More examples = better matching
+2. **Use good keywords** - Include synonyms, abbreviations, related terms
+3. **Add aliases** - Common alternative names for your tool
+4. **Set priority** - `priority: high` for frequently used tools
+5. **Keep docs updated** - Reindex after changes with `please index`
+
+### Example: kubectl
+
+See `~/.please/commands/kubectl.md` (created during setup) for a comprehensive example with 15+ kubectl patterns.
+
+### Troubleshooting
+
+**"No custom commands found"**:
+```bash
+# Ensure commands directory exists and has .md files
+ls ~/.please/commands/
+
+# Reindex
+please index
+```
+
+**"Failed to connect to Ollama"**:
+```bash
+# Start Ollama service
+ollama serve
+
+# Or check if already running
+ps aux | grep ollama
+```
+
+**"Commands not matching"**:
+- Add more keywords to frontmatter
+- Add more examples to your .md files
+- Try hybrid or semantic strategy
+- Lower scoreThreshold in config
 
 ## Command History
 
@@ -207,6 +421,9 @@ please/
 ├── internal/
 │   ├── config/          # Configuration management
 │   ├── agent/           # LLM agent implementations
+│   ├── customcmd/       # Custom commands RAG system
+│   │   ├── embeddings/  # Embedding providers (Ollama, OpenAI)
+│   │   └── vectorstore/ # Vector storage and similarity search
 │   ├── history/         # Command history
 │   ├── ui/              # Interactive prompts
 │   └── executor/        # Command execution
@@ -227,6 +444,18 @@ go test ./...
 
 ## Roadmap
 
+### Completed ✅
+- [x] Custom commands with RAG (keyword + semantic search)
+- [x] Ollama integration (local embeddings)
+- [x] OpenAI integration (cloud embeddings)
+- [x] Auto-indexing with staleness detection
+- [x] Markdown-based command documentation
+
+### In Progress 🚧
+- [ ] Comprehensive test suite
+- [ ] Persistent vector store (save index to disk)
+
+### Planned 📋
 - [ ] Support for additional LLM providers (Codex, Goose, etc.)
 - [ ] Command suggestions based on history
 - [ ] Alias creation for frequently used commands
@@ -234,6 +463,7 @@ go test ./...
 - [ ] Multi-step command workflows
 - [ ] Dry-run mode
 - [ ] Command explanation mode
+- [ ] Additional embedding providers (Cohere, local models)
 
 ## Contributing
 

@@ -24,7 +24,9 @@
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │ Commands:                                            │   │
 │  │ - Root command: Natural language → shell command    │   │
-│  │ - configure: Setup wizard for Claude CLI            │   │
+│  │ - configure: Setup wizard (Claude + Custom Cmds)    │   │
+│  │ - index: Index custom command documentation         │   │
+│  │ - list-commands: Show all custom commands           │   │
 │  └──────────────────────────────────────────────────────┘   │
 └────────────┬────────────────────────────┬───────────────────┘
              │                            │
@@ -35,10 +37,24 @@
 │  │ ~/.please/       │  │    │  │ ~/.please/         │  │
 │  │   config.json    │  │    │  │   history.json     │  │
 │  │ - Agent type     │  │    │  │ - Past commands    │  │
-│  │ - Future configs │  │    │  │ - Modifications    │  │
-│  └──────────────────┘  │    │  │ - Execution status │  │
-└────────────────────────┘    │  └────────────────────┘  │
-                              └──────────────────────────┘
+│  │ - Custom cmds    │  │    │  │ - Modifications    │  │
+│  │   - Provider     │  │    │  │ - Execution status │  │
+│  │   - Matching     │  │    │  └────────────────────┘  │
+│  └──────────────────┘  │    └──────────────────────────┘
+└───────────┬────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────────────────────────┐
+│            internal/customcmd/                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ Custom Command Manager (RAG System)                  │   │
+│  │ - Loader: Scans ~/.please/commands/*.md              │   │
+│  │ - Parser: Extracts YAML frontmatter + examples       │   │
+│  │ - Matcher: Keyword-based or hybrid semantic search   │   │
+│  │ - Embeddings: Ollama (local) or OpenAI (API)         │   │
+│  │ - VectorStore: In-memory cosine similarity search    │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -125,8 +141,34 @@
 - Define configuration schema
 - Handle config migrations (future)
 - Provide config validation
+- Custom command configuration (embedding provider, matching strategy)
 
 **See**: internal/config/CLAUDE.md for extension patterns
+
+### internal/customcmd/
+**Purpose**: RAG-powered custom command documentation system
+
+**Key Files**:
+- `customcmd.go`: Manager for loading and retrieving custom commands
+- `loader.go`: Scans and loads .md files from ~/.please/commands/
+- `parser.go`: Parses YAML frontmatter and examples
+- `matcher.go`: Keyword-based matching with scoring
+- `semantic.go`: Hybrid semantic search (keyword + embeddings)
+- `setup.go`: Automated setup for Ollama and OpenAI
+- `embeddings/`: Embedding providers (Ollama, OpenAI)
+- `vectorstore/`: In-memory vector storage with cosine similarity
+
+**Responsibilities**:
+- Load custom command documentation from markdown files
+- Parse YAML frontmatter (command, aliases, keywords, priority, etc.)
+- Extract user request → command examples
+- Match user requests to relevant custom commands
+- Provide context to LLM agent for proprietary/internal tools
+- Support keyword-only or hybrid semantic matching
+- Manage embedding generation (local or API-based)
+- Handle auto-indexing and manual reindexing
+
+**See**: internal/customcmd/CLAUDE.md for detailed implementation guide
 
 ### internal/executor/
 **Purpose**: Safe command execution
@@ -165,6 +207,329 @@
 - Prompt for user action (run/modify/cancel)
 - Collect modification requests
 - Display success/error/info messages
+
+## Custom Commands Feature
+
+### Overview
+
+The custom commands feature allows users to teach `please` about proprietary, internal, or specialized tools by providing documentation in simple markdown files. This uses **RAG (Retrieval Augmented Generation)** to enhance the LLM's knowledge with your custom tool documentation.
+
+**Key Benefits**:
+- 🎯 Support for internal/proprietary tools unknown to Claude
+- 📚 Document-based knowledge (no code changes needed)
+- 🔍 Smart matching: keyword-based (fast) or semantic (accurate)
+- 🏠 Privacy options: local embeddings (Ollama) or API (OpenAI)
+- 🚀 Auto-indexing with staleness detection
+
+### How It Works
+
+```
+User Request: "deploy my app to staging"
+                    ↓
+    ┌───────────────────────────────┐
+    │ Custom Command Matcher        │
+    │ - Scans ~/.please/commands/   │
+    │ - Keyword or semantic search  │
+    └───────────────┬───────────────┘
+                    ↓
+    ┌───────────────────────────────┐
+    │ Finds: deploy-tool.md         │
+    │ - Command: deploy-tool        │
+    │ - Keywords: deploy, staging   │
+    │ - Examples: 15 request→cmd    │
+    └───────────────┬───────────────┘
+                    ↓
+    ┌───────────────────────────────┐
+    │ Agent receives context:       │
+    │ "The user has deploy-tool...  │
+    │  Example: 'deploy to staging' │
+    │  → 'deploy-tool --env=staging'│
+    └───────────────┬───────────────┘
+                    ↓
+    Generates accurate command using custom context!
+```
+
+### Setup
+
+**Step 1: Configure Custom Commands**
+
+```bash
+please configure
+# Select: "Would you like to configure custom commands?"
+# Choose provider:
+#   - None (keyword-only matching)
+#   - Ollama (local embeddings, private)
+#   - OpenAI (API-based, accurate)
+```
+
+**Ollama Setup** (Recommended for privacy):
+- Tool offers to install Ollama via Homebrew (macOS) or script (Linux)
+- Automatically downloads `nomic-embed-text` model (384 dimensions)
+- Tests connection to localhost:11434
+
+**OpenAI Setup** (Recommended for accuracy):
+- Enter API key (or use `OPENAI_API_KEY` env var)
+- Choose to store in config or use env var
+- Tests connection and validates key
+
+**Step 2: Create Command Documentation**
+
+```bash
+# Directory is auto-created during setup
+cd ~/.please/commands/
+
+# Create a markdown file for your tool
+# Filename: {command-name}.md
+```
+
+**Example: kubectl.md**
+
+```markdown
+---
+command: kubectl
+aliases: ["k8s", "kube"]
+keywords: ["kubernetes", "pods", "deployments", "services"]
+categories: ["devops", "containers"]
+priority: high
+version: "1.28"
+---
+
+# Kubernetes kubectl
+
+kubectl is the Kubernetes command-line tool.
+
+## Common Patterns
+
+- List pods: `kubectl get pods`
+- Describe resource: `kubectl describe {type} {name}`
+- Apply manifest: `kubectl apply -f {file}`
+
+## Examples
+
+**User**: "show me all pods"
+**Command**: `kubectl get pods`
+
+**User**: "get logs from nginx pod"
+**Command**: `kubectl logs nginx`
+
+**User**: "deploy from manifest.yaml"
+**Command**: `kubectl apply -f manifest.yaml`
+```
+
+**Step 3: Index Your Commands**
+
+```bash
+# Manual indexing
+please index
+
+# Auto-indexing
+# Happens automatically on first use or when files change
+```
+
+**Step 4: Use Custom Commands**
+
+```bash
+please "show all pods"
+# Will match kubectl.md and generate: kubectl get pods
+
+please "deploy my app to staging"
+# If you have deploy-tool.md, will use that context
+```
+
+### Matching Strategies
+
+**1. Keyword-Only (Default, No Embeddings)**
+
+Fast, no dependencies, works offline.
+
+Scoring algorithm:
+- Command name match: 100 points
+- Alias match: 80 points
+- Keyword match: 10 points each
+- Example similarity: 15 points per word overlap
+- Priority multipliers: high=1.3x, medium=1.1x
+
+**2. Hybrid (Keyword + Semantic)**
+
+Best accuracy, requires Ollama or OpenAI.
+
+Strategy:
+1. Try keyword matching first (fast path)
+2. If scores meet threshold, use keyword results
+3. Otherwise, fall back to semantic search
+4. Semantic uses vector embeddings + cosine similarity
+
+**Configuration** (in ~/.please/config.json):
+
+```json
+{
+  "customCommands": {
+    "enabled": true,
+    "provider": "ollama",  // or "openai" or "none"
+    "matching": {
+      "strategy": "hybrid",  // or "keyword" or "semantic"
+      "maxDocsToRetrieve": 3,
+      "scoreThreshold": 50
+    },
+    "ollama": {
+      "baseURL": "http://localhost:11434",
+      "model": "nomic-embed-text"
+    }
+  }
+}
+```
+
+### File Format Specification
+
+**YAML Frontmatter** (required):
+```yaml
+---
+command: tool-name          # Primary command name (required)
+aliases: ["alt1", "alt2"]   # Alternative names (optional)
+keywords: ["key1", "key2"]  # Keywords for matching (optional)
+categories: ["cat1"]        # Categories (optional)
+priority: high              # high/medium/low (optional)
+version: "1.0"              # Tool version (optional)
+---
+```
+
+**Markdown Content**:
+- Headers, paragraphs, code blocks (all indexed)
+- Examples section (special parsing):
+
+```markdown
+## Examples
+
+**User**: "natural language request"
+**Command**: `actual command`
+
+**User**: "another request"
+**Command**: `another command`
+```
+
+**Parsing**:
+- Lines starting with `**User**:` → user request
+- Lines starting with `**Command**:` → command (backticks removed)
+- Up to 5 examples per command sent to LLM (token budget)
+
+### Token Budget Management
+
+To keep prompts efficient:
+- **Max 3 commands** matched per request
+- **Max 5 examples** per command sent to LLM
+- **Max 10 common patterns** extracted from content
+- Automatic truncation if content is too long
+
+### CLI Commands
+
+```bash
+# Index custom commands
+please index
+# Output:
+# ✓ Indexed 5 commands from ~/.please/commands/
+# - kubectl (15 examples)
+# - docker (12 examples)
+# - ...
+
+# List all custom commands
+please list-commands
+# Output:
+# Custom Commands (Provider: ollama)
+#
+# kubectl (k8s, kube)
+#   Categories: devops, containers
+#   Priority: high
+#   Examples: 15
+#   File: kubectl.md
+#
+# docker
+#   Categories: devops, containers
+#   Examples: 12
+#   File: docker.md
+
+# Reconfigure custom commands
+please configure
+```
+
+### Auto-Indexing Behavior
+
+The manager automatically detects when indexing is needed:
+
+1. **First Use**: No index exists → prompts to run `please index`
+2. **Stale Index**: Files modified since last index → prompts to reindex
+3. **Manual**: User runs `please index` explicitly
+
+**Detection Logic**:
+```go
+func (m *Manager) NeedsReindex() bool {
+    // Check if any .md file is newer than index timestamp
+    // Return true if stale
+}
+```
+
+### Advanced: Embedding Providers
+
+**Ollama** (Local, Private):
+- Model: `nomic-embed-text` (384 dimensions)
+- API: `http://localhost:11434/api/embeddings`
+- Cost: Free, runs locally
+- Latency: ~50-100ms per embedding
+- Privacy: 100% local, no data sent externally
+
+**OpenAI** (API, Accurate):
+- Model: `text-embedding-3-small` (1536 dimensions)
+- API: `https://api.openai.com/v1/embeddings`
+- Cost: $0.02 per 1M tokens (~$0.0001 per index)
+- Latency: ~100-200ms per embedding
+- Privacy: Data sent to OpenAI
+
+**Vector Store**:
+- In-memory storage (no persistence yet)
+- Cosine similarity for search
+- Thread-safe with sync.RWMutex
+
+**Similarity Calculation**:
+```go
+func cosineSimilarity(a, b []float32) float32 {
+    dotProduct := sum(a[i] * b[i])
+    normA := sqrt(sum(a[i] * a[i]))
+    normB := sqrt(sum(b[i] * b[i]))
+    return dotProduct / (normA * normB)
+}
+```
+
+### Troubleshooting
+
+**"No custom commands found"**:
+- Run `please index` to index your commands
+- Check `~/.please/commands/` has .md files
+- Ensure files have valid YAML frontmatter
+
+**"Failed to connect to Ollama"**:
+- Verify Ollama is running: `ollama serve` or check if service is active
+- Test manually: `curl http://localhost:11434/api/embeddings -d '{"model":"nomic-embed-text","prompt":"test"}'`
+- Check config has correct base URL
+
+**"OpenAI API error"**:
+- Verify API key is valid
+- Check `OPENAI_API_KEY` env var or config
+- Ensure account has credits
+
+**"Commands not matching"**:
+- Check keywords in frontmatter match your query words
+- Add more examples to your .md files
+- Try hybrid or semantic strategy if using keyword-only
+- Increase `scoreThreshold` in config if getting too many irrelevant results
+
+### Best Practices
+
+1. **Comprehensive Examples**: Add 10-15 diverse examples per command
+2. **Good Keywords**: Include synonyms, abbreviations, related terms
+3. **Clear Aliases**: Add common alternative names
+4. **Priority Levels**: Set priority=high for most-used tools
+5. **Categories**: Group related commands for future features
+6. **Regular Updates**: Keep docs current as tools evolve
+7. **Test Matching**: Use `please list-commands` to verify indexing
 
 ## Development Workflows
 
@@ -331,6 +696,30 @@ See RELEASING.md for detailed guide. Summary:
 3. Test with various command types
 4. Consider token efficiency
 
+### "Add custom command documentation for {tool}"
+1. Create ~/.please/commands/{tool}.md
+2. Add YAML frontmatter (command, keywords, aliases, priority)
+3. Add 10-15 diverse examples with User/Command pattern
+4. Run `please index` to index the new documentation
+5. Test with `please "{natural language query}"`
+6. Verify with `please list-commands`
+
+### "Add new embedding provider"
+1. Read internal/customcmd/embeddings/embedder.go interface
+2. Create internal/customcmd/embeddings/{provider}.go
+3. Implement Embedder interface (Embed, EmbedBatch, Dimensions, Name)
+4. Add provider type to config.go EmbeddingProvider enum
+5. Update setup.go with provider-specific setup logic
+6. Add connection testing
+7. Test with `please configure`
+
+### "Improve custom command matching accuracy"
+1. Review matcher.go scoring algorithm
+2. Add more weight to certain match types
+3. Consider adding fuzzy matching for typos
+4. Test with edge cases (synonyms, abbreviations)
+5. Monitor false positives/negatives
+
 ### "Add configuration option {feature}"
 1. Read internal/config/CLAUDE.md
 2. Update Config struct
@@ -353,24 +742,45 @@ See RELEASING.md for detailed guide. Summary:
 
 ## Future Roadmap
 
+### Completed ✅
+- [x] Custom commands with RAG (Week 1-2 implementation)
+- [x] Keyword-based matching
+- [x] Hybrid semantic search (Ollama + OpenAI)
+- [x] Auto-indexing with staleness detection
+- [x] Command documentation via markdown files
+- [x] Setup wizard for embedding providers
+
 ### Near-term
 - [ ] Add comprehensive test suite
+  - [ ] Unit tests for keyword matcher
+  - [ ] Unit tests for embedders (mocked)
+  - [ ] Integration tests for hybrid matcher
+  - [ ] End-to-end tests for custom commands
+- [ ] Persistent vector store (save index to disk)
 - [ ] Support for additional LLM providers (Codex, Goose)
 - [ ] Command explanation mode
 - [ ] Dry-run mode
 - [ ] Shell completion
+- [ ] Additional embedding providers (Cohere, local models)
 
 ### Medium-term
 - [ ] Command history-based suggestions
 - [ ] Alias creation for frequent commands
 - [ ] Multi-step command workflows
 - [ ] Context-aware suggestions (based on directory contents)
+- [ ] Custom command sharing/marketplace
+- [ ] Chunking strategy for long documentation
+- [ ] Incremental indexing (only index changed files)
+- [ ] Command usage analytics
 
 ### Long-term
 - [ ] Learning from user corrections
 - [ ] Integration with system package managers
 - [ ] Plugin system for custom agents
 - [ ] Web dashboard for history/analytics
+- [ ] Collaborative custom command repositories
+- [ ] Auto-discovery of tools in PATH
+- [ ] Integration with man pages and --help output
 
 ## Getting Help
 

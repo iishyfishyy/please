@@ -10,6 +10,7 @@ type Agent interface {
 	// RefineCommand takes a command and modification request and returns a refined command
 	RefineCommand(ctx context.Context, originalCommand, modificationRequest string) (string, error)
 
-	// ExplainCommand takes a command and returns a human-readable explanation
-	ExplainCommand(ctx context.Context, command string) (string, error)
+	// ExplainCommand takes a command and original request, returns a human-readable explanation
+	// request is used to match custom command documentation for context
+	ExplainCommand(ctx context.Context, command string, request string) (string, error)
 }

@@ -13,11 +13,41 @@ import (
 )
 
 // ClaudeAgent implements the Agent interface using Claude CLI
-type ClaudeAgent struct{}
+type ClaudeAgent struct {
+	customCmdGetter CustomDocGetter
+	debug           bool
+}
+
+// CustomDocGetter is a function type for getting custom command docs
+// This avoids circular dependencies
+type CustomDocGetter func(request string, maxDocs int) []CustomCommandDoc
+
+// CustomCommandDoc represents a custom command document (simplified for agent)
+type CustomCommandDoc struct {
+	Command  string
+	Content  string
+	Examples []CommandExample
+}
+
+// CommandExample represents a command example
+type CommandExample struct {
+	UserRequest string
+	Command     string
+}
 
 // NewClaudeAgent creates a new Claude agent
 func NewClaudeAgent() *ClaudeAgent {
 	return &ClaudeAgent{}
+}
+
+// SetCustomDocGetter sets the custom command doc getter function
+func (c *ClaudeAgent) SetCustomDocGetter(getter CustomDocGetter) {
+	c.customCmdGetter = getter
+}
+
+// SetDebug enables or disables debug logging
+func (c *ClaudeAgent) SetDebug(debug bool) {
+	c.debug = debug
 }
 
 // IsClaudeCLIInstalled checks if the claude CLI is available
@@ -28,18 +58,40 @@ func IsClaudeCLIInstalled() bool {
 
 // TranslateToCommand translates natural language to a shell command
 func (c *ClaudeAgent) TranslateToCommand(ctx context.Context, request string) (string, error) {
-	prompt := fmt.Sprintf(`%s
+	// Get relevant custom commands if available
+	customDocs := c.getRelevantCustomDocs(request)
+	if c.debug && len(customDocs) > 0 {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Agent: retrieved %d custom command docs\n", len(customDocs))
+	}
+	customContext := c.buildCustomCommandContext(customDocs)
+	if c.debug && customContext != "" {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Agent: custom command context length: %d chars\n", len(customContext))
+	}
 
+	systemPrompt := c.buildSystemPrompt()
+	prompt := fmt.Sprintf(`%s
+%s
 Convert this request into a shell command: "%s"
 
 IMPORTANT: Respond with ONLY the command itself, nothing else. No explanations, no markdown, no code blocks. Just the raw command.`,
-		c.buildSystemPrompt(), request)
+		systemPrompt, customContext, request)
+
+	if c.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Agent: built prompt (%d chars)\n", len(prompt))
+		if len(prompt) < 500 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Agent: prompt preview: %q\n", prompt)
+		}
+	}
 
 	return c.callClaude(ctx, prompt)
 }
 
 // RefineCommand refines an existing command based on modification request
 func (c *ClaudeAgent) RefineCommand(ctx context.Context, originalCommand, modificationRequest string) (string, error) {
+	if c.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Agent: refining command %q with modification %q\n", originalCommand, modificationRequest)
+	}
+
 	prompt := fmt.Sprintf(`%s
 
 Original command: %s
@@ -53,19 +105,27 @@ IMPORTANT: Respond with ONLY the modified command itself, nothing else. No expla
 }
 
 // ExplainCommand provides a human-readable explanation of a shell command
-func (c *ClaudeAgent) ExplainCommand(ctx context.Context, command string) (string, error) {
+// request is the original user request (used to match custom commands)
+func (c *ClaudeAgent) ExplainCommand(ctx context.Context, command string, request string) (string, error) {
 	osInfo := runtime.GOOS
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
 	}
 
+	// Get relevant custom commands if available (for proprietary tools)
+	customDocs := c.getRelevantCustomDocs(request)
+	if c.debug && len(customDocs) > 0 {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Agent: found %d custom command docs for explanation\n", len(customDocs))
+	}
+	customContext := c.buildCustomCommandContext(customDocs)
+
 	prompt := fmt.Sprintf(`You are a helpful assistant that explains shell commands in simple, clear terms.
 
 Environment:
 - Operating System: %s
 - Shell: %s
-
+%s
 Command to explain: %s
 
 Provide a concise explanation that covers:
@@ -74,7 +134,7 @@ Provide a concise explanation that covers:
 3. Any important warnings or notes
 
 Keep it brief but informative. Use plain language that non-experts can understand.`,
-		osInfo, shell, command)
+		osInfo, shell, customContext, command)
 
 	return c.callClaude(ctx, prompt)
 }
@@ -206,8 +266,108 @@ Command: git log -10 --oneline
 Remember: Respond with ONLY the command itself, nothing else.`, osInfo, shell, contextSection)
 }
 
+// getRelevantCustomDocs retrieves relevant custom command docs
+func (c *ClaudeAgent) getRelevantCustomDocs(request string) []CustomCommandDoc {
+	if c.customCmdGetter == nil {
+		return nil
+	}
+
+	// Get up to 3 most relevant docs
+	return c.customCmdGetter(request, 3)
+}
+
+// buildCustomCommandContext builds the custom commands section of the prompt
+func (c *ClaudeAgent) buildCustomCommandContext(docs []CustomCommandDoc) string {
+	if len(docs) == 0 {
+		return ""
+	}
+
+	var context strings.Builder
+	context.WriteString("\n\nCUSTOM COMMANDS AVAILABLE:\n")
+	context.WriteString("The following custom/internal tools are available:\n\n")
+
+	for _, doc := range docs {
+		context.WriteString(fmt.Sprintf("## %s\n", doc.Command))
+
+		// Include examples (most useful for matching)
+		if len(doc.Examples) > 0 {
+			context.WriteString("Examples:\n")
+			for i, ex := range doc.Examples {
+				if i >= 5 { // Limit to 5 examples per command to save tokens
+					break
+				}
+				context.WriteString(fmt.Sprintf("  User: \"%s\"\n", ex.UserRequest))
+				context.WriteString(fmt.Sprintf("  Command: %s\n", ex.Command))
+			}
+		}
+
+		// Include common patterns (extract from content, limited)
+		patterns := extractCommonPatterns(doc.Content, 10)
+		if patterns != "" {
+			context.WriteString("\nCommon patterns:\n")
+			for _, line := range strings.Split(patterns, "\n") {
+				if strings.TrimSpace(line) != "" {
+					context.WriteString("  " + line + "\n")
+				}
+			}
+		}
+
+		context.WriteString("\n")
+	}
+
+	return context.String()
+}
+
+// extractCommonPatterns extracts command patterns from markdown content
+func extractCommonPatterns(content string, maxLines int) string {
+	lines := strings.Split(content, "\n")
+	var patterns []string
+	inCodeBlock := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Toggle code block state
+		if strings.HasPrefix(line, "```") {
+			inCodeBlock = !inCodeBlock
+			continue
+		}
+
+		// Skip empty lines and headers
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Capture lines in code blocks (likely command examples)
+		if inCodeBlock && line != "" {
+			patterns = append(patterns, line)
+			if len(patterns) >= maxLines {
+				break
+			}
+		}
+	}
+
+	if len(patterns) == 0 {
+		return ""
+	}
+
+	return strings.Join(patterns, "\n")
+}
+
 // callClaude calls the Claude CLI with the given prompt
 func (c *ClaudeAgent) callClaude(ctx context.Context, prompt string) (string, error) {
+	if c.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Agent: calling Claude CLI with prompt (%d chars)\n", len(prompt))
+		// Log full prompt for transparency
+		if len(prompt) <= 3000 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Agent: full prompt:\n---\n%s\n---\n", prompt)
+		} else {
+			// For very long prompts, show first 2000 and last 500 chars
+			fmt.Fprintf(os.Stderr, "[DEBUG] Agent: full prompt (truncated):\n---\n%s\n\n... [%d chars omitted] ...\n\n%s\n---\n",
+				prompt[:2000], len(prompt)-2500, prompt[len(prompt)-500:])
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, "claude", prompt)
 
 	var stdout, stderr bytes.Buffer
@@ -215,10 +375,20 @@ func (c *ClaudeAgent) callClaude(ctx context.Context, prompt string) (string, er
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if c.debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Agent: Claude CLI failed: %v\n", err)
+			if stderr.String() != "" {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Agent: stderr: %s\n", stderr.String())
+			}
+		}
 		return "", fmt.Errorf("failed to call claude CLI: %w\nStderr: %s", err, stderr.String())
 	}
 
 	output := strings.TrimSpace(stdout.String())
+	if c.debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Agent: received response (%d chars): %q\n", len(output), output)
+	}
+
 	if output == "" {
 		return "", fmt.Errorf("claude CLI returned empty response")
 	}

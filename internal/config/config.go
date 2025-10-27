@@ -22,9 +22,52 @@ const (
 	// AgentGoose  AgentType = "goose"
 )
 
+// EmbeddingProvider represents the embedding provider type
+type EmbeddingProvider string
+
+const (
+	ProviderNone   EmbeddingProvider = "none"
+	ProviderOllama EmbeddingProvider = "ollama"
+	ProviderOpenAI EmbeddingProvider = "openai"
+)
+
 // Config represents the application configuration
 type Config struct {
-	Agent AgentType `json:"agent"`
+	Agent          AgentType       `json:"agent"`
+	CustomCommands *CustomCommands `json:"custom_commands,omitempty"`
+}
+
+// CustomCommands configuration
+type CustomCommands struct {
+	Enabled  bool              `json:"enabled"`
+	Provider EmbeddingProvider `json:"provider,omitempty"`
+	Matching MatchingConfig    `json:"matching,omitempty"`
+	Ollama   OllamaConfig      `json:"ollama,omitempty"`
+	OpenAI   OpenAIConfig      `json:"openai,omitempty"`
+}
+
+// MatchingConfig controls matching behavior
+type MatchingConfig struct {
+	Strategy         string `json:"strategy,omitempty"`          // "keyword", "semantic", "hybrid"
+	KeywordThreshold int    `json:"keyword_threshold,omitempty"` // Score threshold for keyword matches
+	MaxDocsPerReq    int    `json:"max_docs_per_request,omitempty"`
+	TokenBudget      int    `json:"token_budget,omitempty"`
+}
+
+// OllamaConfig for local embeddings
+type OllamaConfig struct {
+	URL        string `json:"url,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Dimensions int    `json:"dimensions,omitempty"`
+}
+
+// OpenAIConfig for OpenAI embeddings
+type OpenAIConfig struct {
+	APIKey     string `json:"api_key,omitempty"`
+	APIKeyEnv  string `json:"api_key_env,omitempty"`
+	UseEnvVar  bool   `json:"use_env_var,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Dimensions int    `json:"dimensions,omitempty"`
 }
 
 // GetConfigDir returns the path to the config directory
@@ -115,4 +158,38 @@ func Exists() (bool, error) {
 	}
 
 	return true, nil
+}
+
+// NewDefaultCustomCommands returns default custom commands configuration
+func NewDefaultCustomCommands(provider EmbeddingProvider) *CustomCommands {
+	cc := &CustomCommands{
+		Enabled:  true,
+		Provider: provider,
+		Matching: MatchingConfig{
+			Strategy:         "hybrid",
+			KeywordThreshold: 50,
+			MaxDocsPerReq:    3,
+			TokenBudget:      1500,
+		},
+	}
+
+	switch provider {
+	case ProviderOllama:
+		cc.Ollama = OllamaConfig{
+			URL:        "http://localhost:11434",
+			Model:      "nomic-embed-text",
+			Dimensions: 384,
+		}
+	case ProviderOpenAI:
+		cc.OpenAI = OpenAIConfig{
+			APIKeyEnv:  "OPENAI_API_KEY",
+			UseEnvVar:  true,
+			Model:      "text-embedding-3-small",
+			Dimensions: 1536,
+		}
+	case ProviderNone:
+		cc.Matching.Strategy = "keyword"
+	}
+
+	return cc
 }
