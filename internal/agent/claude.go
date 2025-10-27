@@ -98,7 +98,23 @@ Original command: %s
 
 Modification request: %s
 
-IMPORTANT: Respond with ONLY the modified command itself, nothing else. No explanations, no markdown, no code blocks. Just the raw command.`,
+DO NOT EXPLAIN. DO NOT USE MARKDOWN. DO NOT ADD COMMENTARY.
+
+WRONG OUTPUT (DO NOT DO THIS):
+The modified command to list Go files would be:
+find . -name "*.go"
+
+WRONG OUTPUT (DO NOT DO THIS):
+` + "```bash" + `
+find . -name "*.go"
+` + "```" + `
+
+CORRECT OUTPUT (DO THIS):
+find . -name "*.go"
+
+YOUR TASK: Output ONLY the modified command. Nothing else. No text before it. No text after it. No markdown. No explanation. Just the raw shell command on a single line.
+
+Modified command:`,
 		c.buildSystemPrompt(), originalCommand, modificationRequest)
 
 	return c.callClaude(ctx, prompt)
