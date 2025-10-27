@@ -7,6 +7,8 @@
 
 `please` converts your natural language queries into the respective terminal command.
 
+![Demo of please in action](./please-demo.gif)
+
 Unlike other similar tools that require API keys (which usually require a purchase of separate credits), `please` is powered by headless mode of agents you have installed on your machine.
 
 You can teach `please` about your internal/proprietary tools by configuring it with your docuentation. `please` can use simple keyword matching and/or RAG to answer queries based on your documentation. The tool can generate embeddings locally (Ollama) or via OpenAI's embeddings API (requires your own OpenAI API key).
