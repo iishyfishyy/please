@@ -240,6 +240,38 @@ func contains(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
+// ShowMenu displays an interactive menu and returns the selected index
+func ShowMenu(title string, options []string) (int, error) {
+	var selected string
+	prompt := &survey.Select{
+		Message: title,
+		Options: options,
+	}
+
+	if err := survey.AskOne(prompt, &selected); err != nil {
+		return -1, err
+	}
+
+	// Find the index of the selected option
+	for i, opt := range options {
+		if opt == selected {
+			return i, nil
+		}
+	}
+
+	return -1, fmt.Errorf("selected option not found")
+}
+
+// ShowConfigStatus displays a summary of the current configuration
+func ShowConfigStatus(status interface{}) {
+	// This will be called with a ConfigStatus from main.go
+	// We use interface{} to avoid circular dependency
+	fmt.Println()
+	cyan := color.New(color.FgCyan, color.Bold)
+	cyan.Println("Current Settings:")
+	cyan.Println("─────────────────")
+}
+
 // FormatMarkdown converts markdown text to terminal-friendly format
 func FormatMarkdown(text string) string {
 	var result strings.Builder
