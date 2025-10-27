@@ -9,7 +9,7 @@ before:
     - go mod tidy
 
 builds:
-  - main: ./cmd/please
+  - main: ./cmd/please/main.go
     binary: please
     env:
       - CGO_ENABLED=0
