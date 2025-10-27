@@ -1,5 +1,10 @@
 # `please` AI
 
+[![GitHub Release](https://img.shields.io/github/v/release/iishyfishyy/please)](https://github.com/iishyfishyy/please/releases)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/iishyfishyy/please/release.yml)](https://github.com/iishyfishyy/please/actions)
+[![License](https://img.shields.io/github/license/iishyfishyy/please)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/iishyfishyy/please)](go.mod)
+
 `please` converts your natural language queries into the respective terminal command.
 
 Unlike other similar tools that require API keys (which usually require a purchase of separate credits), `please` is powered by headless mode of agents you have installed on your machine.
